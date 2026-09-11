@@ -28,7 +28,7 @@
 #define KERNELSNITCH_IDENTITY_START  0xffffff8000000000ULL
 #define KERNELSNITCH_IDENTITY_END    0xffffff9000000000ULL
 #define KERNEL_TEXT_MIN              0xffffffc000000000ULL
-#define KIMAGE_TEXT_BASE             0xffffff8008000000ULL
+#define KIMAGE_TEXT_BASE             0xffffff8028000000ULL
 #define INIT_MM_IMAGE                0xffffffc012e74310ULL
 #define MM_PGD_OFF                   0x48ULL
 #define MM_STRUCT_SZ                 0x398
