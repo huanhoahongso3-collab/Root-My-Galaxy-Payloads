@@ -13,11 +13,11 @@
             "requiresFreshP0Session": true,
             "exploit": {
                 "url": "https://raw.githubusercontent.com/getrrbypass-bot/Root-My-Galaxy-Payloads/main/artifacts/a73x-A736BXXSCGZF1/cve-2026-43499-app.so",
-                "size": 122904
+                "size": 122888
             },
             "kernelsu": {
                 "url": "https://raw.githubusercontent.com/getrrbypass-bot/Root-My-Galaxy-Payloads/main/artifacts/a73x-A736BXXSCGZF1/cve-2026-43499-app.so",
-                "size": 122904
+                "size": 122888
             }
         },
         {
