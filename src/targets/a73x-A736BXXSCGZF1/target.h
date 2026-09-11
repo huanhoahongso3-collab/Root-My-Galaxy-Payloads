@@ -31,7 +31,7 @@
 #define KIMAGE_TEXT_BASE             0xffffffc008000000ULL
 #define INIT_MM_IMAGE                0xffffffc012e74310ULL
 #define MM_PGD_OFF                   0x48ULL
-#define MM_STRUCT_SZ    0x3c0
+#define MM_STRUCT_SZ                 0x398
 #define MM_ORDER        3
 #define MM_PARTIALS     5
 #define APPENDED_FUTEXES 2048
