@@ -416,6 +416,15 @@ jobs:
             '#endif' \
             > "$KOUT/include/linux/pgtable.h"
 
+          # linux/minmax.h was split from linux/kernel.h in 5.14; shim it for 5.4
+          printf '%s\n' \
+            '/* SPDX-License-Identifier: GPL-2.0 */' \
+            '#ifndef _LINUX_MINMAX_COMPAT_H' \
+            '#define _LINUX_MINMAX_COMPAT_H' \
+            '#include <linux/kernel.h>' \
+            '#endif' \
+            > "$KOUT/include/linux/minmax.h"
+
           # Force-include compat header for all KernelSU objects.
           # strncpy_from_user_nofault was renamed from strncpy_from_unsafe_user in 5.8.
           printf '%s\n' \
