@@ -436,6 +436,7 @@ jobs:
             '#include <linux/uaccess.h>' \
             '#include <linux/sched/task.h>' \
             '#include <linux/pid.h>' \
+            '#include <linux/sched/signal.h>' \
             '/* ---- 5.8 nofault probe API (renamed from probe_kernel_*) ---- */' \
             '#ifndef copy_to_kernel_nofault' \
             'static __always_inline long copy_to_kernel_nofault(void *dst, const void *src, size_t size)' \
