@@ -275,9 +275,9 @@ jobs:
             '#ifndef _KSU_54_COMPAT_H' \
             '#define _KSU_54_COMPAT_H' \
             '#include <linux/version.h>' \
-            '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)' \
+            '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)' \
             '#include <linux/uaccess.h>' \
-            '/* nofault probe API renamed in 5.8 from probe_kernel_* / strncpy_from_unsafe_user */' \
+            '/* ---- 5.8 nofault probe API (renamed from probe_kernel_*) ---- */' \
             '#ifndef copy_to_kernel_nofault' \
             'static __always_inline long copy_to_kernel_nofault(void *dst, const void *src, size_t size)' \
             '{ return probe_kernel_write(dst, src, size); }' \
@@ -291,11 +291,15 @@ jobs:
             '    char *dst, const void __user *unsafe_addr, long count)' \
             '{ return strncpy_from_unsafe_user(dst, unsafe_addr, count); }' \
             '#endif' \
-            '/* faccessat2 syscall (aarch64 #439) added in 5.8 */' \
+            '/* ---- 5.8 faccessat2 syscall (aarch64 #439) ---- */' \
             '#ifndef __NR_faccessat2' \
             '#define __NR_faccessat2 439' \
             '#endif' \
-            '/* TWA_RESUME task_work_add mode added ~5.10 */' \
+            '/* ---- 5.9 security_inode_init_security_anon (no-op on 5.4) ---- */' \
+            '#ifndef security_inode_init_security_anon' \
+            '#define security_inode_init_security_anon(i,n,c) ((void)(i),(void)(n),(void)(c),0)' \
+            '#endif' \
+            '/* ---- 5.10 TWA_RESUME task_work_add mode ---- */' \
             '#ifndef TWA_RESUME' \
             '#define TWA_RESUME 1' \
             '#endif' \
