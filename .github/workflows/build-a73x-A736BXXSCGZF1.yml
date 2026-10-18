@@ -174,32 +174,79 @@ jobs:
           cd /tmp/KernelSU
           git apply "$GITHUB_WORKSPACE/kernelsu/patches/KernelSU-v3.2.5-samsung-kdp-rkp-defex.patch"
 
+      - name: List available defconfigs (debug)
+        run: |
+          echo "=== arch/arm64/configs/ ==="
+          ls /tmp/kernel-src/arch/arm64/configs/ 2>/dev/null || echo "(directory not found)"
+          echo ""
+          echo "=== vendor fragment dirs ==="
+          ls /tmp/kernel-src/arch/arm64/configs/vendor/ 2>/dev/null || echo "(no vendor dir)"
+          echo ""
+          echo "=== top-level kernel dirs ==="
+          ls /tmp/kernel-src/ | head -20
+
       - name: Prepare kernel build tree
         run: |
           cd /tmp/kernel-src
-          # Use the IKCONFIG embedded in the kernel image if available,
-          # otherwise fall back to a defconfig
-          if [ -f arch/arm64/configs/a73xqxx_defconfig ]; then
-            make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-              CROSS_COMPILE=aarch64-linux-gnu- \
-              CLANG_TRIPLE=aarch64-linux-gnu- \
-              a73xqxx_defconfig
-          else
-            # Try first matching defconfig
-            DEFCFG=$(ls arch/arm64/configs/*a73* arch/arm64/configs/*qgki* 2>/dev/null | head -1)
-            if [ -n "$DEFCFG" ]; then
-              make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-                CROSS_COMPILE=aarch64-linux-gnu- \
-                CLANG_TRIPLE=aarch64-linux-gnu- \
-                $(basename $DEFCFG)
-            else
-              echo "ERROR: No matching defconfig found" && exit 1
+          MAKE_FLAGS="O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-"
+
+          # 1. Try exact Samsung model defconfigs (most specific first)
+          DEFCFG=""
+          for candidate in \
+            a73xqxx_defconfig a73xq_defconfig a73x_defconfig \
+            yupik_defconfig yupik-qgki_defconfig sm7325_defconfig \
+            vendor/lahaina_GKI.config vendor/yupik_GKI.config; do
+            if [ -f "arch/arm64/configs/$candidate" ]; then
+              DEFCFG="$candidate"
+              echo "Found defconfig: $candidate"
+              break
+            fi
+          done
+
+          # 2. Glob for anything matching a73, yupik, sm7325
+          if [ -z "$DEFCFG" ]; then
+            DEFCFG=$(ls arch/arm64/configs/*a73* \
+                        arch/arm64/configs/*yupik* \
+                        arch/arm64/configs/*sm7325* \
+                        arch/arm64/configs/*778* 2>/dev/null | head -1)
+            [ -n "$DEFCFG" ] && echo "Glob match: $DEFCFG" && DEFCFG=$(basename $DEFCFG)
+          fi
+
+          # 3. Fall back to gki_defconfig (QGKI GKI base), then merge vendor frags
+          if [ -z "$DEFCFG" ]; then
+            if [ -f arch/arm64/configs/gki_defconfig ]; then
+              DEFCFG="gki_defconfig"
+              echo "Falling back to gki_defconfig"
             fi
           fi
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            olddefconfig modules_prepare
+
+          if [ -z "$DEFCFG" ]; then
+            echo "ERROR: No suitable defconfig found in arch/arm64/configs/"
+            ls arch/arm64/configs/ | head -30
+            exit 1
+          fi
+
+          # Run defconfig
+          make $MAKE_FLAGS $DEFCFG
+
+          # Merge any vendor GKI fragments if we used gki_defconfig
+          if [ "$DEFCFG" = "gki_defconfig" ]; then
+            for frag in \
+              arch/arm64/configs/vendor/yupik_GKI.config \
+              arch/arm64/configs/vendor/lahaina_GKI.config \
+              arch/arm64/configs/vendor/a73*.config; do
+              if [ -f "$frag" ]; then
+                echo "Merging vendor fragment: $frag"
+                scripts/kconfig/merge_config.sh -m -O out out/.config "$frag"
+              fi
+            done
+          fi
+
+          # Enable module support (required for KernelSU .ko)
+          echo "CONFIG_MODULES=y"   >> out/.config
+          echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
+
+          make $MAKE_FLAGS olddefconfig modules_prepare
 
       - name: Stamp exact kernel release string
         run: |
