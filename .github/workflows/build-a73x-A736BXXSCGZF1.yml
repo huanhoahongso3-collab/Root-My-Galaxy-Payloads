@@ -237,7 +237,23 @@ jobs:
               )
               return src.replace(old_block, new_block, 1)
 
+          # app_profile.c: seccomp.filter_count added in 5.9; skip the reset on 5.4.
+          def patch_app_profile(src):
+              needle = 'atomic_set(&current->seccomp.filter_count, 0);'
+              if needle not in src:
+                  print('app_profile.c: filter_count line not found — skip')
+                  return src
+              if '#include <linux/version.h>' not in src:
+                  src = re.sub(r'(#include <linux/[a-z])', r'#include <linux/version.h>\n\1', src, count=1)
+              replacement = (
+                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)\n'
+                  '    ' + needle + '\n'
+                  '#endif'
+              )
+              return src.replace(needle, replacement, 1)
+
           patch_file('/tmp/KernelSU/kernel/manager/pkg_observer.c', patch_pkg_observer)
+          patch_file('/tmp/KernelSU/kernel/policy/app_profile.c', patch_app_profile)
           print('Done.')
           PYEOF
 
