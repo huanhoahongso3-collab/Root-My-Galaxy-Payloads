@@ -252,8 +252,33 @@ jobs:
               )
               return src.replace(needle, replacement, 1)
 
+          # selinux/rules.c: uses selinux_state.policy + selinux_policy struct which
+          # were added in kernel 5.12 (policy extracted into its own RCU-protected object).
+          # On 5.4 the policydb lives directly in selinux_state.ss; rewriting the full
+          # access path in CI is fragile. Provide no-op stubs: the exploit sets SELinux
+          # permissive anyway, so rule injection isn't strictly required for a first boot.
+          def patch_selinux_rules(src):
+              if 'selinux_state.policy' not in src and 'selinux_state.policy_mutex' not in src:
+                  print('selinux/rules.c: 5.12+ policy API not found — skip')
+                  return src
+              print('selinux/rules.c: wrapping 5.12+ code, adding 5.4 no-op stubs')
+              new_src = (
+                  '#include <linux/version.h>\n'
+                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)\n'
+                  + src +
+                  '\n#else /* kernel < 5.12: selinux_state.policy not available */\n'
+                  '#include <linux/types.h>\n'
+                  '#include <linux/uaccess.h>\n'
+                  'void apply_kernelsu_rules(void) { }\n'
+                  'int handle_sepolicy(void __user *user_data, u64 data_len)\n'
+                  '{ (void)user_data; (void)data_len; return 0; }\n'
+                  '#endif\n'
+              )
+              return new_src
+
           patch_file('/tmp/KernelSU/kernel/manager/pkg_observer.c', patch_pkg_observer)
           patch_file('/tmp/KernelSU/kernel/policy/app_profile.c', patch_app_profile)
+          patch_file('/tmp/KernelSU/kernel/selinux/rules.c', patch_selinux_rules)
           print('Done.')
           PYEOF
 
