@@ -97,9 +97,12 @@
 #define SLIDE_LOCK_OWNER_VALUE        1ULL
 #define SLIDE_USE_FAKE_TASK           1
 #define COMPACT_RT_MUTEX_WAITER       1
-/* TODO: verify on device: cat /sys/kernel/tracing/events/sched/sched_blocked_reason/id */
+/* Verified on device: cat /sys/kernel/tracing/events/sched/sched_blocked_reason/id = 73 */
+/* WORKER_CALLER_OFF calibrated from tracefs raw caller=ffffffc010222774 (6 hits during fsync)
+ * at slide=0: binary offset = caller_virt - KIMAGE_TEXT_BASE = 0x8222774 (verified: P0 profile
+ * addresses match slide=0 exactly for this firmware A736BXXSCGZF1). */
 #define SLIDE_TRACEFS_EVENT_ID        73
-#define SLIDE_TRACEFS_WORKER_CALLER_OFF 0x0834ef7cULL
+#define SLIDE_TRACEFS_WORKER_CALLER_OFF 0x08222774ULL
 #define SLIDE_PSELECT_WORD_SHIFT      3
 #define SLIDE_P0_OFFSET_CANDIDATES \
   0x000000ULL, 0x010000ULL, 0x020000ULL, 0x030000ULL, \
