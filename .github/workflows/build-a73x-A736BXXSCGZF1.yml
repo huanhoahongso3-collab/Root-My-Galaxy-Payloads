@@ -204,15 +204,16 @@ jobs:
               if '#include <linux/version.h>' not in src:
                   src = re.sub(r'(#include <linux/[a-z])', r'#include <linux/version.h>\n\1', src, count=1)
               m = re.search(
-                  r'(static\s+(?:const\s+)?struct\s+fsnotify_ops\s+\w+\s*=\s*\{[^}]*'
+                  r'(static\s+(?:const\s+)?struct\s+fsnotify_ops\s+(\w+)\s*=\s*\{[^}]*'
                   r'\.handle_inode_event\s*=\s*(\w+)[^}]*\}\s*;)',
                   src, re.DOTALL)
               if not m:
                   print('pkg_observer.c: fsnotify_ops block not found — skip')
                   return src
               old_block = m.group(1)
-              fn_name = m.group(2)
-              print(f'pkg_observer.c: inserting 8->6 param adapter for fn={fn_name}')
+              struct_name = m.group(2)  # e.g. ksu_ops
+              fn_name = m.group(3)      # e.g. ksu_handle_inode_event
+              print(f'pkg_observer.c: inserting 8->6 param adapter for fn={fn_name} struct={struct_name}')
               # Samsung QGKI 5.4 handle_event = 8-param (group, inode, mask, data,
               # data_type, file_name, cookie, iter_info).
               # ksu_handle_inode_event = old 6-param (mark, mask, inode, dir, name, cookie).
@@ -227,7 +228,7 @@ jobs:
                   '{\n'
                   f'    return {fn_name}(NULL, mask, inode, NULL, file_name, cookie);\n'
                   '}\n'
-                  'static struct fsnotify_ops ksu_fsnotify_ops = {\n'
+                  f'static struct fsnotify_ops {struct_name} = {{\n'
                   f'    .handle_event = {fn_name}_54compat,\n'
                   '};\n'
                   '#else\n'
