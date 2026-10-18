@@ -193,9 +193,10 @@ jobs:
               except FileNotFoundError:
                   print(f'Skip (not found): {path}')
 
-          # pkg_observer.c: fsnotify_ops field was renamed handle_event -> handle_inode_event
-          # in 5.9. The samsung-patched ksu_handle_inode_event already has the 5.4
-          # six-param handle_event signature, so we just rename the field for 5.4.
+          # pkg_observer.c: Samsung QGKI 5.4 backported the upstream-5.9 fsnotify API
+          # (8-param handle_event) but kept the old field name "handle_event".
+          # ksu_handle_inode_event has the old 6-param signature, so we need an
+          # adapter wrapper that bridges from 8 params -> 6 params for 5.4.
           def patch_pkg_observer(src):
               if 'handle_inode_event' not in src:
                   print('pkg_observer.c: handle_inode_event not present — skip')
@@ -211,12 +212,24 @@ jobs:
                   return src
               old_block = m.group(1)
               fn_name = m.group(2)
-              print(f'pkg_observer.c: renaming .handle_inode_event for fn={fn_name}')
-              # The function already has the 5.4 six-param signature.
-              # Wrap the ops struct in a version guard, renaming the field for 5.4.
+              print(f'pkg_observer.c: inserting 8->6 param adapter for fn={fn_name}')
+              # Samsung QGKI 5.4 handle_event = 8-param (group, inode, mask, data,
+              # data_type, file_name, cookie, iter_info).
+              # ksu_handle_inode_event = old 6-param (mark, mask, inode, dir, name, cookie).
+              # The wrapper adapts the two; mark and dir can be NULL for this use-case.
               new_block = (
                   '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)\n'
-                  + old_block.replace('.handle_inode_event', '.handle_event') + '\n'
+                  f'static int {fn_name}_54compat(\n'
+                  '    struct fsnotify_group *group, struct inode *inode,\n'
+                  '    u32 mask, const void *data, int data_type,\n'
+                  '    const struct qstr *file_name, u32 cookie,\n'
+                  '    struct fsnotify_iter_info *iter_info)\n'
+                  '{\n'
+                  f'    return {fn_name}(NULL, mask, inode, NULL, file_name, cookie);\n'
+                  '}\n'
+                  'static struct fsnotify_ops ksu_fsnotify_ops = {\n'
+                  f'    .handle_event = {fn_name}_54compat,\n'
+                  '};\n'
                   '#else\n'
                   + old_block + '\n'
                   '#endif'
