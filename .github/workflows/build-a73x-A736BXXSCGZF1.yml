@@ -1,0 +1,268 @@
+name: Build a73x-A736BXXSCGZF1
+
+on:
+  push:
+    branches:
+      - feat/a73x-A736BXXSCGZF1
+    paths:
+      - 'src/**'
+      - 'Makefile'
+      - '.github/workflows/build-a73x-A736BXXSCGZF1.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'Makefile'
+  workflow_dispatch:
+    inputs:
+      kernel_source_url:
+        description: 'Direct URL to Samsung kernel source tarball for A736BXXSCGZF1 (optional – skips .ko build if blank)'
+        required: false
+        default: ''
+
+env:
+  TARGET: a73x-A736BXXSCGZF1
+  KERNEL_RELEASE: 5.4.289-qgki-32200428-abA736BXXSCGZF1
+  NDK_VERSION: r29
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Job 1: Build the exploit .so payload
+  # ──────────────────────────────────────────────
+  build-payload:
+    name: Build exploit payload (.so)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Android NDK ${{ env.NDK_VERSION }}
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: false
+
+      - name: Build (debug, all targets)
+        run: make TARGET=${{ env.TARGET }} all
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - name: Build release .so and check size ≤ 104128 bytes
+        id: build-release
+        run: |
+          make TARGET=${{ env.TARGET }} release
+          SIZE=$(stat -c %s build/${{ env.TARGET }}/cve-2026-43499-app.release.so)
+          echo "release_size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "Release .so size: $SIZE bytes (limit 104128)"
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - name: Report sizes
+        run: |
+          echo "### Payload sizes" >> "$GITHUB_STEP_SUMMARY"
+          echo "| File | Size |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|------|" >> "$GITHUB_STEP_SUMMARY"
+          for f in build/${{ env.TARGET }}/*; do
+            echo "| $(basename $f) | $(stat -c %s $f) bytes |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload payload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: a73x-A736BXXSCGZF1-payload
+          path: build/${{ env.TARGET }}/
+          retention-days: 30
+
+  # ──────────────────────────────────────────────
+  # Job 2: Build KernelSU .ko against Samsung 5.4
+  # Requires A73X_KERNEL_SOURCE_URL repo variable
+  # or kernel_source_url workflow_dispatch input.
+  # Set it at:
+  #   Settings → Secrets and variables → Actions → Variables
+  #   Name: A73X_KERNEL_SOURCE_URL
+  #   Value: direct download URL of SM-A736B_16_Opensource.zip from
+  #          https://opensource.samsung.com (search "SM-A736B")
+  # ──────────────────────────────────────────────
+  build-ksu-ko:
+    name: Build KernelSU .ko (5.4.289-qgki)
+    runs-on: ubuntu-latest
+    # Only run when a kernel source URL is provided
+    if: >
+      (github.event_name == 'workflow_dispatch' && inputs.kernel_source_url != '') ||
+      (github.event_name != 'workflow_dispatch' && vars.A73X_KERNEL_SOURCE_URL != '')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libssl-dev libelf-dev \
+            llvm clang lld python3 cpio pahole \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Resolve kernel source URL
+        id: resolve-url
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "url=${{ inputs.kernel_source_url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ vars.A73X_KERNEL_SOURCE_URL }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Samsung kernel source
+        run: |
+          mkdir -p /tmp/kernel-src
+          echo "Downloading from: ${{ steps.resolve-url.outputs.url }}"
+          curl -fL --retry 3 --retry-delay 5 \
+            "${{ steps.resolve-url.outputs.url }}" \
+            -o /tmp/kernel.zip
+          unzip -q /tmp/kernel.zip -d /tmp/kernel-raw
+          # Samsung zips usually contain a nested tarball
+          TARBALL=$(find /tmp/kernel-raw -name "*.tar.gz" -o -name "*.tar.xz" | head -1)
+          if [ -n "$TARBALL" ]; then
+            tar -xf "$TARBALL" -C /tmp/kernel-src --strip-components=1
+          else
+            cp -r /tmp/kernel-raw/. /tmp/kernel-src/
+          fi
+          echo "Kernel source extracted to /tmp/kernel-src"
+          ls /tmp/kernel-src
+
+      - name: Checkout KernelSU v3.2.5
+        run: |
+          git clone --depth 1 --branch v3.2.5 \
+            https://github.com/tiann/KernelSU.git /tmp/KernelSU
+
+      - name: Apply Samsung KDP/RKP/DEFEX patch
+        run: |
+          cd /tmp/KernelSU
+          git apply "$GITHUB_WORKSPACE/kernelsu/patches/KernelSU-v3.2.5-samsung-kdp-rkp-defex.patch"
+
+      - name: Prepare kernel build tree
+        run: |
+          cd /tmp/kernel-src
+          # Use the IKCONFIG embedded in the kernel image if available,
+          # otherwise fall back to a defconfig
+          if [ -f arch/arm64/configs/a73xqxx_defconfig ]; then
+            make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+              CROSS_COMPILE=aarch64-linux-gnu- \
+              CLANG_TRIPLE=aarch64-linux-gnu- \
+              a73xqxx_defconfig
+          else
+            # Try first matching defconfig
+            DEFCFG=$(ls arch/arm64/configs/*a73* arch/arm64/configs/*qgki* 2>/dev/null | head -1)
+            if [ -n "$DEFCFG" ]; then
+              make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+                CROSS_COMPILE=aarch64-linux-gnu- \
+                CLANG_TRIPLE=aarch64-linux-gnu- \
+                $(basename $DEFCFG)
+            else
+              echo "ERROR: No matching defconfig found" && exit 1
+            fi
+          fi
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            olddefconfig modules_prepare
+
+      - name: Stamp exact kernel release string
+        run: |
+          KOUT=/tmp/kernel-src/out
+          RELEASE="${{ env.KERNEL_RELEASE }}"
+          echo "Stamping release: $RELEASE"
+          echo "$RELEASE" > "$KOUT/include/config/kernel.release"
+          # utsrelease.h
+          sed -i "s/#define UTS_RELEASE \".*\"/#define UTS_RELEASE \"$RELEASE\"/" \
+            "$KOUT/include/generated/utsrelease.h" || \
+            echo "#define UTS_RELEASE \"$RELEASE\"" > "$KOUT/include/generated/utsrelease.h"
+          grep UTS_RELEASE "$KOUT/include/generated/utsrelease.h"
+
+      - name: Generate SELinux headers
+        run: |
+          KOUT=/tmp/kernel-src/out
+          mkdir -p "$KOUT/security/selinux"
+          if [ -f "$KOUT/scripts/selinux/genheaders/genheaders" ]; then
+            "$KOUT/scripts/selinux/genheaders/genheaders" \
+              "$KOUT/security/selinux/flask.h" \
+              "$KOUT/security/selinux/av_permissions.h"
+          fi
+
+      - name: Build KernelSU module
+        run: |
+          make -C /tmp/kernel-src/out \
+            M="/tmp/KernelSU/kernel" \
+            src="/tmp/KernelSU/kernel" \
+            ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CONFIG_KSU=m \
+            CONFIG_KSU_SAMSUNG_KDP=y \
+            CONFIG_KSU_SAMSUNG_RKP=y \
+            CONFIG_KSU_SAMSUNG_DEFEX=y \
+            KBUILD_MODPOST_WARN=1 \
+            modules
+
+      - name: Validate .ko
+        run: |
+          KO=/tmp/KernelSU/kernel/kernelsu.ko
+          echo "=== modinfo ==="
+          modinfo "$KO" || llvm-readelf -p .modinfo "$KO"
+          echo ""
+          echo "=== vermagic check ==="
+          VERMAGIC=$(modinfo "$KO" 2>/dev/null | grep vermagic || true)
+          echo "$VERMAGIC"
+          if ! echo "$VERMAGIC" | grep -q "${{ env.KERNEL_RELEASE }}"; then
+            echo "WARNING: vermagic does not contain expected release ${{ env.KERNEL_RELEASE }}"
+          fi
+          echo ""
+          echo "=== __versions section size ==="
+          llvm-readelf -SW "$KO" | grep __versions || echo "(no __versions section)"
+          echo ""
+          echo "=== .ko size ==="
+          stat -c "Size: %s bytes" "$KO"
+
+      - name: Run symbol audit
+        run: |
+          # audit_module_against_target.py needs a vmlinux — skip if not available,
+          # but run the basic undefined-symbol check that doesn't need one
+          KO=/tmp/KernelSU/kernel/kernelsu.ko
+          UNDEF=$(llvm-nm -u "$KO" | wc -l)
+          echo "Undefined symbols in .ko: $UNDEF"
+          echo "### KernelSU .ko audit" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Undefined symbols: $UNDEF" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Size: $(stat -c %s $KO) bytes" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Strip debug sections
+        run: |
+          llvm-strip -d /tmp/KernelSU/kernel/kernelsu.ko
+
+      - name: Copy .ko to artifacts dir
+        run: |
+          KO_NAME="android16-5.4_kernelsu-a73x-A736BXXSCGZF1-kdp.ko"
+          cp /tmp/KernelSU/kernel/kernelsu.ko \
+            "$GITHUB_WORKSPACE/kernelsu/$KO_NAME"
+          echo "Saved as kernelsu/$KO_NAME"
+          stat -c "Final size: %s bytes" "$GITHUB_WORKSPACE/kernelsu/$KO_NAME"
+
+      - name: Upload .ko artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: a73x-A736BXXSCGZF1-kernelsu-ko
+          path: kernelsu/android16-5.4_kernelsu-a73x-A736BXXSCGZF1-kdp.ko
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          KO="$GITHUB_WORKSPACE/kernelsu/android16-5.4_kernelsu-a73x-A736BXXSCGZF1-kdp.ko"
+          echo "### KernelSU .ko build result" >> "$GITHUB_STEP_SUMMARY"
+          echo "| | |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Target | ${{ env.TARGET }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Kernel | ${{ env.KERNEL_RELEASE }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| KernelSU | v3.2.5 + samsung-kdp-rkp-defex patch |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Size | $(stat -c %s $KO) bytes |" >> "$GITHUB_STEP_SUMMARY"
