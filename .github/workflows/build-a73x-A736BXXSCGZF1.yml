@@ -276,11 +276,20 @@ jobs:
             '#define _KSU_54_COMPAT_H' \
             '#include <linux/version.h>' \
             '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)' \
+            '/* strncpy_from_user_nofault renamed from strncpy_from_unsafe_user in 5.8 */' \
             '#ifndef strncpy_from_user_nofault' \
             '#include <linux/uaccess.h>' \
             'static __always_inline long strncpy_from_user_nofault(' \
             '    char *dst, const void __user *unsafe_addr, long count)' \
             '{ return strncpy_from_unsafe_user(dst, unsafe_addr, count); }' \
+            '#endif' \
+            '/* faccessat2 syscall (aarch64 #439) added in 5.8 */' \
+            '#ifndef __NR_faccessat2' \
+            '#define __NR_faccessat2 439' \
+            '#endif' \
+            '/* TWA_RESUME task_work_add mode added ~5.10; define as 1 for 5.4 */' \
+            '#ifndef TWA_RESUME' \
+            '#define TWA_RESUME 1' \
             '#endif' \
             '#endif' \
             '#endif' \
