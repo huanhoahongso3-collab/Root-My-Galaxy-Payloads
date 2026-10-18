@@ -396,9 +396,14 @@ static int slide_tracefs_parse_page(const unsigned char *page,
            index < sizeof(link_callers) / sizeof(link_callers[0]); index++) {
         if (caller >= link_callers[index]) {
           uint64_t candidate = caller - link_callers[index];
+          pr_info("slide tracefs cand caller=%016llx idx=%zu cand=%llu chk=%d\n",
+                  (unsigned long long)caller, index,
+                  (unsigned long long)candidate,
+                  (int)(candidate <= slide_max_offset && (candidate & 0x7fffULL) == 0));
           if (candidate <= slide_max_offset &&
               (candidate & 0x7fffULL) == 0) {
             size_t slot = (size_t)(candidate >> 15);
+            pr_info("slide tracefs hit slot=%zu hits=%u\n", slot, slide_tracefs_candidate_hits[slot]);
             slide_tracefs_candidate_hits[slot]++;
           }
         }
