@@ -190,12 +190,14 @@ jobs:
           cd /tmp/kernel-src
           MAKE_FLAGS="O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu-"
 
-          # 1. Try exact Samsung model defconfigs (most specific first)
+          # 1. Try exact names (top-level then vendor/ subdir)
           DEFCFG=""
           for candidate in \
             a73xqxx_defconfig a73xq_defconfig a73x_defconfig \
-            yupik_defconfig yupik-qgki_defconfig sm7325_defconfig \
-            vendor/lahaina_GKI.config vendor/yupik_GKI.config; do
+            vendor/a73xqxx_defconfig vendor/a73xq_defconfig \
+            vendor/a73xq_eur_open_defconfig vendor/a73xq_eur_defconfig \
+            yupik_defconfig vendor/yupik_defconfig \
+            gki_defconfig; do
             if [ -f "arch/arm64/configs/$candidate" ]; then
               DEFCFG="$candidate"
               echo "Found defconfig: $candidate"
@@ -203,47 +205,29 @@ jobs:
             fi
           done
 
-          # 2. Glob for anything matching a73, yupik, sm7325
+          # 2. Glob: top-level then vendor/ subdir
           if [ -z "$DEFCFG" ]; then
-            DEFCFG=$(ls arch/arm64/configs/*a73* \
-                        arch/arm64/configs/*yupik* \
-                        arch/arm64/configs/*sm7325* \
-                        arch/arm64/configs/*778* 2>/dev/null | head -1)
-            [ -n "$DEFCFG" ] && echo "Glob match: $DEFCFG" && DEFCFG=$(basename $DEFCFG)
-          fi
-
-          # 3. Fall back to gki_defconfig (QGKI GKI base), then merge vendor frags
-          if [ -z "$DEFCFG" ]; then
-            if [ -f arch/arm64/configs/gki_defconfig ]; then
-              DEFCFG="gki_defconfig"
-              echo "Falling back to gki_defconfig"
+            MATCH=$(ls arch/arm64/configs/*a73* arch/arm64/configs/*yupik* \
+                       arch/arm64/configs/vendor/*a73* arch/arm64/configs/vendor/*yupik* \
+                       2>/dev/null | head -1)
+            if [ -n "$MATCH" ]; then
+              # pass as relative path from arch/arm64/configs/
+              DEFCFG="${MATCH#arch/arm64/configs/}"
+              echo "Glob match: $DEFCFG"
             fi
           fi
 
           if [ -z "$DEFCFG" ]; then
-            echo "ERROR: No suitable defconfig found in arch/arm64/configs/"
-            ls arch/arm64/configs/ | head -30
+            echo "ERROR: No suitable defconfig found. Available:"
+            find arch/arm64/configs -maxdepth 2 | head -40
             exit 1
           fi
 
-          # Run defconfig
-          make $MAKE_FLAGS $DEFCFG
-
-          # Merge any vendor GKI fragments if we used gki_defconfig
-          if [ "$DEFCFG" = "gki_defconfig" ]; then
-            for frag in \
-              arch/arm64/configs/vendor/yupik_GKI.config \
-              arch/arm64/configs/vendor/lahaina_GKI.config \
-              arch/arm64/configs/vendor/a73*.config; do
-              if [ -f "$frag" ]; then
-                echo "Merging vendor fragment: $frag"
-                scripts/kconfig/merge_config.sh -m -O out out/.config "$frag"
-              fi
-            done
-          fi
+          # Run defconfig (pass relative path as make target)
+          make $MAKE_FLAGS "$DEFCFG"
 
           # Enable module support (required for KernelSU .ko)
-          echo "CONFIG_MODULES=y"   >> out/.config
+          echo "CONFIG_MODULES=y"      >> out/.config
           echo "CONFIG_MODULE_UNLOAD=y" >> out/.config
 
           make $MAKE_FLAGS olddefconfig modules_prepare
