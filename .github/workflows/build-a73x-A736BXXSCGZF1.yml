@@ -257,6 +257,7 @@ jobs:
       - name: Create kernel 5.4 compat headers
         run: |
           KOUT=/tmp/kernel-src/out
+          mkdir -p "$KOUT/include/linux"
           # linux/pgtable.h was introduced in 5.8; shim it for 5.4
           printf '%s\n' \
             '/* SPDX-License-Identifier: GPL-2.0 */' \
