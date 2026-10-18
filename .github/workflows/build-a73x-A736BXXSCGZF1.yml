@@ -315,10 +315,33 @@ jobs:
               )
               return new_src
 
+          # feature/selinux_hide.c: uses selinux_state.status_lock / status_page
+          # which were moved into selinux_state in the 5.12 SELinux refactor.
+          # Stub all exports; selinux_hide is a bonus feature, not root-critical.
+          def patch_selinux_hide(src):
+              if 'selinux_state.status_lock' not in src and 'selinux_state.status_page' not in src:
+                  print('feature/selinux_hide.c: 5.12+ selinux_state fields not found — skip')
+                  return src
+              print('feature/selinux_hide.c: wrapping 5.12+ code, adding 5.4 no-op stubs')
+              new_src = (
+                  '#include <linux/version.h>\n'
+                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)\n'
+                  + src +
+                  '\n#else /* kernel < 5.12 */\n'
+                  'void ksu_selinux_hide_handle_second_stage(void) { }\n'
+                  'void ksu_selinux_hide_handle_post_fs_data(void) { }\n'
+                  'void ksu_selinux_hide_init(void) { }\n'
+                  'void ksu_selinux_hide_exit(void) { }\n'
+                  'void ksu_selinux_hide_drop_backup_if_unused(void) { }\n'
+                  '#endif\n'
+              )
+              return new_src
+
           patch_file('/tmp/KernelSU/kernel/manager/pkg_observer.c', patch_pkg_observer)
           patch_file('/tmp/KernelSU/kernel/policy/app_profile.c', patch_app_profile)
           patch_file('/tmp/KernelSU/kernel/selinux/rules.c', patch_selinux_rules)
           patch_file('/tmp/KernelSU/kernel/selinux/sepolicy.c', patch_selinux_sepolicy)
+          patch_file('/tmp/KernelSU/kernel/feature/selinux_hide.c', patch_selinux_hide)
           print('Done.')
           PYEOF
 
