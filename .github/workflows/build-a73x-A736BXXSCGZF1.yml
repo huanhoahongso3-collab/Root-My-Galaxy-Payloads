@@ -276,9 +276,17 @@ jobs:
             '#define _KSU_54_COMPAT_H' \
             '#include <linux/version.h>' \
             '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)' \
-            '/* strncpy_from_user_nofault renamed from strncpy_from_unsafe_user in 5.8 */' \
-            '#ifndef strncpy_from_user_nofault' \
             '#include <linux/uaccess.h>' \
+            '/* nofault probe API renamed in 5.8 from probe_kernel_* / strncpy_from_unsafe_user */' \
+            '#ifndef copy_to_kernel_nofault' \
+            'static __always_inline long copy_to_kernel_nofault(void *dst, const void *src, size_t size)' \
+            '{ return probe_kernel_write(dst, src, size); }' \
+            '#endif' \
+            '#ifndef copy_from_kernel_nofault' \
+            'static __always_inline long copy_from_kernel_nofault(void *dst, const void *src, size_t size)' \
+            '{ return probe_kernel_read(dst, src, size); }' \
+            '#endif' \
+            '#ifndef strncpy_from_user_nofault' \
             'static __always_inline long strncpy_from_user_nofault(' \
             '    char *dst, const void __user *unsafe_addr, long count)' \
             '{ return strncpy_from_unsafe_user(dst, unsafe_addr, count); }' \
@@ -287,7 +295,7 @@ jobs:
             '#ifndef __NR_faccessat2' \
             '#define __NR_faccessat2 439' \
             '#endif' \
-            '/* TWA_RESUME task_work_add mode added ~5.10; define as 1 for 5.4 */' \
+            '/* TWA_RESUME task_work_add mode added ~5.10 */' \
             '#ifndef TWA_RESUME' \
             '#define TWA_RESUME 1' \
             '#endif' \
