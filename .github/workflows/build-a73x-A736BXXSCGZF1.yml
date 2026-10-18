@@ -195,35 +195,59 @@ jobs:
 
           # pkg_observer.c: fsnotify handle_event vs handle_inode_event API changed in 5.9
           def patch_pkg_observer(src):
+              # Print context around handle_inode_event for debugging
+              idx = src.find('handle_inode_event')
+              if idx < 0:
+                  print('pkg_observer.c: handle_inode_event not found at all — nothing to patch')
+                  return src
+              print(f'=== context around handle_inode_event (char {idx}) ===')
+              print(src[max(0, idx-200):idx+200])
+              print('=== end context ===')
+
               # Ensure linux/version.h is included
               if '#include <linux/version.h>' not in src:
-                  src = re.sub(r'#include <linux/', '#include <linux/version.h>\n#include <linux/', src, count=1)
-              # Find the fsnotify_ops struct init using handle_inode_event
+                  src = re.sub(r'(#include <linux/[a-z])', r'#include <linux/version.h>\n\1', src, count=1)
+
+              # Find fsnotify_ops block with handle_inode_event — allow const or non-const,
+              # any amount of whitespace, multiline
               m = re.search(
-                  r'(static\s+(?:const\s+)?struct\s+fsnotify_ops\s+ksu_fsnotify_ops\s*=\s*\{[^}]*?\.handle_inode_event\s*=\s*(\w+)[^}]*?\}\s*;)',
+                  r'(static\s+(?:const\s+)?struct\s+fsnotify_ops\s+\w+\s*=\s*\{[^}]*'
+                  r'\.handle_inode_event\s*=\s*(\w+)[^}]*\}\s*;)',
                   src, re.DOTALL)
               if not m:
-                  print('pkg_observer.c: handle_inode_event pattern not found (already patched?)')
-                  return src
-              old_block = m.group(1)
-              fn_name = m.group(2)
-              # Build version-conditional replacement
-              new_block = (
-                  '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)\n'
-                  f'static int {fn_name}_54compat(struct fsnotify_mark *mark, u32 mask,\n'
-                  f'    struct inode *inode, struct inode *dir,\n'
-                  f'    const struct qstr *name, u32 cookie)\n'
-                  '{\n'
-                  f'    return {fn_name}(NULL, inode, mask, NULL, 0, name, cookie, NULL);\n'
-                  '}\n'
-                  'static struct fsnotify_ops ksu_fsnotify_ops = {\n'
-                  f'    .handle_event = {fn_name}_54compat,\n'
-                  '};\n'
-                  '#else\n'
-                  + old_block + '\n'
-                  '#endif'
-              )
-              return src.replace(old_block, new_block)
+                  print('pkg_observer.c: fsnotify_ops struct not found, trying line-level replace')
+                  # Fallback: direct string search for the field line
+                  needle = '.handle_inode_event = '
+                  pos = src.find(needle)
+                  if pos < 0:
+                      print('ERROR: cannot locate .handle_inode_event in file')
+                      return src
+                  # Find the function name after the =
+                  rest = src[pos+len(needle):]
+                  fn_name = re.match(r'(\w+)', rest).group(1)
+                  print(f'fallback: fn_name={fn_name}')
+              else:
+                  old_block = m.group(1)
+                  fn_name = m.group(2)
+                  print(f'Matched fsnotify_ops block, fn_name={fn_name}')
+
+                  new_block = (
+                      '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)\n'
+                      f'static int {fn_name}_54compat(struct fsnotify_mark *mark, u32 mask,\n'
+                      f'    struct inode *inode, struct inode *dir,\n'
+                      f'    const struct qstr *name, u32 cookie)\n'
+                      '{\n'
+                      f'    return {fn_name}(NULL, inode, mask, NULL, 0, name, cookie, NULL);\n'
+                      '}\n'
+                      'static struct fsnotify_ops ksu_fsnotify_ops = {\n'
+                      f'    .handle_event = {fn_name}_54compat,\n'
+                      '};\n'
+                      '#else\n'
+                      + old_block + '\n'
+                      '#endif'
+                  )
+                  src = src.replace(old_block, new_block, 1)
+              return src
 
           patch_file('/tmp/KernelSU/kernel/manager/pkg_observer.c', patch_pkg_observer)
           print('Done.')
