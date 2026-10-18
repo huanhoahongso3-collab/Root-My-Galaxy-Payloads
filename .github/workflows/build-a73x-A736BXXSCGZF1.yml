@@ -17,7 +17,11 @@ on:
   workflow_dispatch:
     inputs:
       kernel_source_url:
-        description: 'Direct URL to Samsung kernel source tarball for A736BXXSCGZF1 (optional – skips .ko build if blank)'
+        description: 'Override kernel source URL (uses secret A73X_KERNEL_SOURCE_URL if blank)'
+        required: false
+        default: ''
+      kernel_patch_url:
+        description: 'Override CGZF1 patch URL (uses secret A73X_KERNEL_PATCH_URL if blank)'
         required: false
         default: ''
 
@@ -106,32 +110,59 @@ jobs:
             llvm clang lld python3 cpio pahole \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
-      - name: Resolve kernel source URL
+      - name: Resolve URLs
         id: resolve-url
+        env:
+          SECRET_SRC: ${{ secrets.A73X_KERNEL_SOURCE_URL }}
+          SECRET_PATCH: ${{ secrets.A73X_KERNEL_PATCH_URL }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "url=${{ inputs.kernel_source_url }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "url=${{ vars.A73X_KERNEL_SOURCE_URL }}" >> "$GITHUB_OUTPUT"
-          fi
+          SRC="${{ inputs.kernel_source_url }}"
+          [ -z "$SRC" ] && SRC="$SECRET_SRC"
+          PATCH="${{ inputs.kernel_patch_url }}"
+          [ -z "$PATCH" ] && PATCH="$SECRET_PATCH"
+          echo "src_url=$SRC" >> "$GITHUB_OUTPUT"
+          echo "patch_url=$PATCH" >> "$GITHUB_OUTPUT"
 
-      - name: Download Samsung kernel source
+      - name: Download Samsung kernel base source
         run: |
           mkdir -p /tmp/kernel-src
-          echo "Downloading from: ${{ steps.resolve-url.outputs.url }}"
+          echo "Downloading base source..."
           curl -fL --retry 3 --retry-delay 5 \
-            "${{ steps.resolve-url.outputs.url }}" \
+            "${{ steps.resolve-url.outputs.src_url }}" \
             -o /tmp/kernel.zip
           unzip -q /tmp/kernel.zip -d /tmp/kernel-raw
-          # Samsung zips usually contain a nested tarball
           TARBALL=$(find /tmp/kernel-raw -name "*.tar.gz" -o -name "*.tar.xz" | head -1)
           if [ -n "$TARBALL" ]; then
             tar -xf "$TARBALL" -C /tmp/kernel-src --strip-components=1
           else
             cp -r /tmp/kernel-raw/. /tmp/kernel-src/
           fi
-          echo "Kernel source extracted to /tmp/kernel-src"
-          ls /tmp/kernel-src
+          echo "Base source extracted: $(ls /tmp/kernel-src | head -5)"
+
+      - name: Apply CGZF1 patch
+        run: |
+          PATCH_URL="${{ steps.resolve-url.outputs.patch_url }}"
+          if [ -z "$PATCH_URL" ]; then
+            echo "No patch URL set — skipping patch step"
+            exit 0
+          fi
+          echo "Downloading CGZF1 patch..."
+          curl -fL --retry 3 --retry-delay 5 "$PATCH_URL" -o /tmp/patch.zip
+          mkdir -p /tmp/patch-raw
+          unzip -q /tmp/patch.zip -d /tmp/patch-raw
+          # Apply any .patch files found
+          find /tmp/patch-raw -name "*.patch" | sort | while read p; do
+            echo "Applying patch: $p"
+            patch -d /tmp/kernel-src -p1 < "$p"
+          done
+          # Copy any non-patch files (config overrides, headers, etc.) over the base tree
+          find /tmp/patch-raw -not -name "*.patch" -type f | while read f; do
+            REL="${f#/tmp/patch-raw/}"
+            DEST="/tmp/kernel-src/$REL"
+            mkdir -p "$(dirname $DEST)"
+            cp "$f" "$DEST"
+          done
+          echo "CGZF1 patch applied."
 
       - name: Checkout KernelSU v3.2.5
         run: |
