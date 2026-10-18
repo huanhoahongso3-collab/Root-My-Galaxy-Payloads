@@ -276,9 +276,49 @@ jobs:
               )
               return new_src
 
+          # selinux/sepolicy.c: uses selinux_policy struct (5.12+) and
+          # filename_trans internals that differ across Samsung QGKI 5.4 vs upstream.
+          # Since rules.c is stubbed for < 5.12, sepolicy functions are never called;
+          # we just need them to compile. Wrap the file and provide minimal stubs.
+          def patch_selinux_sepolicy(src):
+              if 'struct selinux_policy' not in src and 'filename_trans_key' not in src:
+                  print('selinux/sepolicy.c: 5.12+ API not found — skip')
+                  return src
+              print('selinux/sepolicy.c: wrapping 5.12+ code, adding 5.4 no-op stubs')
+              new_src = (
+                  '#include <linux/version.h>\n'
+                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)\n'
+                  + src +
+                  '\n#else /* kernel < 5.12 */\n'
+                  '#include <linux/types.h>\n'
+                  '#include "ss/policydb.h"\n'
+                  'void ksu_destroy_sepolicy(struct selinux_policy *p) { (void)p; }\n'
+                  'struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *p) { (void)p; return NULL; }\n'
+                  'bool ksu_type(struct policydb *db, const char *n, const char *a) { return false; }\n'
+                  'bool ksu_attribute(struct policydb *db, const char *n) { return false; }\n'
+                  'bool ksu_permissive(struct policydb *db, const char *t) { return false; }\n'
+                  'bool ksu_enforce(struct policydb *db, const char *t) { return false; }\n'
+                  'bool ksu_typeattribute(struct policydb *db, const char *t, const char *a) { return false; }\n'
+                  'bool ksu_exists(struct policydb *db, const char *t) { return false; }\n'
+                  'bool ksu_allow(struct policydb *db, const char *s, const char *t, const char *c, const char *p) { return false; }\n'
+                  'bool ksu_deny(struct policydb *db, const char *s, const char *t, const char *c, const char *p) { return false; }\n'
+                  'bool ksu_auditallow(struct policydb *db, const char *s, const char *t, const char *c, const char *p) { return false; }\n'
+                  'bool ksu_dontaudit(struct policydb *db, const char *s, const char *t, const char *c, const char *p) { return false; }\n'
+                  'bool ksu_allowxperm(struct policydb *db, const char *s, const char *t, const char *c, const char *r) { return false; }\n'
+                  'bool ksu_auditallowxperm(struct policydb *db, const char *s, const char *t, const char *c, const char *r) { return false; }\n'
+                  'bool ksu_dontauditxperm(struct policydb *db, const char *s, const char *t, const char *c, const char *r) { return false; }\n'
+                  'bool ksu_type_transition(struct policydb *db, const char *s, const char *t, const char *c, const char *d, const char *o) { return false; }\n'
+                  'bool ksu_type_change(struct policydb *db, const char *s, const char *t, const char *c, const char *d) { return false; }\n'
+                  'bool ksu_type_member(struct policydb *db, const char *s, const char *t, const char *c, const char *d) { return false; }\n'
+                  'bool ksu_genfscon(struct policydb *db, const char *f, const char *p, const char *c) { return false; }\n'
+                  '#endif\n'
+              )
+              return new_src
+
           patch_file('/tmp/KernelSU/kernel/manager/pkg_observer.c', patch_pkg_observer)
           patch_file('/tmp/KernelSU/kernel/policy/app_profile.c', patch_app_profile)
           patch_file('/tmp/KernelSU/kernel/selinux/rules.c', patch_selinux_rules)
+          patch_file('/tmp/KernelSU/kernel/selinux/sepolicy.c', patch_selinux_sepolicy)
           print('Done.')
           PYEOF
 
@@ -426,6 +466,10 @@ jobs:
             '#ifndef SECCOMP_ARCH_NATIVE_NR' \
             '#include <asm/unistd.h>' \
             '#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls' \
+            '#endif' \
+            '/* ---- 5.12 selinux_policy struct (forward decl for pointer-only use) ---- */' \
+            '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0)' \
+            'struct selinux_policy;' \
             '#endif' \
             '#endif' \
             '#endif' \
