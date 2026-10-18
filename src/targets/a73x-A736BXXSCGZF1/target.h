@@ -97,6 +97,7 @@
 #define SLIDE_LOCK_OWNER_VALUE        1ULL
 #define SLIDE_USE_FAKE_TASK           1
 #define COMPACT_RT_MUTEX_WAITER       1
+/* TODO: verify on device: cat /sys/kernel/tracing/events/sched/sched_blocked_reason/id */
 #define SLIDE_TRACEFS_EVENT_ID        73
 #define SLIDE_TRACEFS_WORKER_CALLER_OFF 0x0834ef7cULL
 #define SLIDE_PSELECT_WORD_SHIFT      3
@@ -228,12 +229,13 @@
 #define PIPE_BUF_FLAG_CAN_MERGE 0x10
 
 
-/* ---- P0 physical memory (SM8325 / Snapdragon 778G) ---- */
+/* ---- P0 physical memory (SM7325 / Snapdragon 778G) ---- */
 #define P0_PAGE_OFFSET       0xffffff8000000000ULL
 #define P0_PHYS_OFFSET       0x80000000ULL
 #define P0_KERNEL_PHYS_LOAD  0xa8000000ULL
 
 /* ---- sysctl boot_id ---- */
+/* TODO: offset 0x0b2a9de1 has odd byte alignment — verify against vmlinux.nm */
 #define SYSCTL_BOOTID_OFF  0x0b2a9de1ULL
 #define SLIDE_SYSCTL_BOOTID_OFF   SYSCTL_BOOTID_OFF
 #define SLIDE_SYSCTL_BOOTID_IMAGE (KIMAGE_TEXT_BASE + SLIDE_SYSCTL_BOOTID_OFF)
