@@ -257,17 +257,17 @@ jobs:
       - name: Create kernel 5.4 compat headers
         run: |
           KOUT=/tmp/kernel-src/out
-          # linux/pgtable.h was introduced in 5.8; create a shim for 5.4
-          cat > "$KOUT/include/linux/pgtable.h" << 'SHIM'
-/* SPDX-License-Identifier: GPL-2.0 */
-/* compat shim: linux/pgtable.h added in 5.8 */
-#ifndef _LINUX_PGTABLE_COMPAT_H
-#define _LINUX_PGTABLE_COMPAT_H
-#include <asm/pgtable.h>
-#endif
-SHIM
-          echo "Created linux/pgtable.h compat shim"
-          ls -la "$KOUT/include/linux/pgtable.h"
+          # linux/pgtable.h was introduced in 5.8; shim it for 5.4
+          printf '%s\n' \
+            '/* SPDX-License-Identifier: GPL-2.0 */' \
+            '/* compat: linux/pgtable.h added in 5.8 */' \
+            '#ifndef _LINUX_PGTABLE_COMPAT_H' \
+            '#define _LINUX_PGTABLE_COMPAT_H' \
+            '#include <asm/pgtable.h>' \
+            '#endif' \
+            > "$KOUT/include/linux/pgtable.h"
+          echo "Created linux/pgtable.h compat shim:"
+          cat "$KOUT/include/linux/pgtable.h"
 
       - name: Build KernelSU module
         run: |
