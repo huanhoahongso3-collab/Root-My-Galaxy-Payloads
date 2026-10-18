@@ -344,6 +344,7 @@ jobs:
             '#include <linux/version.h>' \
             '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)' \
             '#include <linux/uaccess.h>' \
+            '#include <linux/sched/task.h>' \
             '/* ---- 5.8 nofault probe API (renamed from probe_kernel_*) ---- */' \
             '#ifndef copy_to_kernel_nofault' \
             'static __always_inline long copy_to_kernel_nofault(void *dst, const void *src, size_t size)' \
