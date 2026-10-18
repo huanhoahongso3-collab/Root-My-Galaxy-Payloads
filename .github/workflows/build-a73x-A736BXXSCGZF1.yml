@@ -303,6 +303,11 @@ jobs:
             '#ifndef TWA_RESUME' \
             '#define TWA_RESUME 1' \
             '#endif' \
+            '/* ---- 5.11 SECCOMP_ARCH_NATIVE_NR (seccomp cache) ---- */' \
+            '#ifndef SECCOMP_ARCH_NATIVE_NR' \
+            '#include <asm/unistd.h>' \
+            '#define SECCOMP_ARCH_NATIVE_NR __NR_syscalls' \
+            '#endif' \
             '#endif' \
             '#endif' \
             > /tmp/ksu_compat.h
