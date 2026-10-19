@@ -2108,7 +2108,8 @@ uintptr_t prepare_kernel_page(int payload_mode) {
       MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS, 0, 0);
 #if defined(APP_PAYLOAD) && APP_PAYLOAD && \
     defined(SLIDE_KSNITCH_APPENDED_FUTEXES)
-  if (payload_mode == PAGE_PAYLOAD_SLIDE) {
+  if (payload_mode == PAGE_PAYLOAD_SLIDE ||
+      payload_mode == PAGE_PAYLOAD_FOPS) {
     kernelsnitch_set_profile(
         ks, SLIDE_KSNITCH_APPENDED_FUTEXES,
         SLIDE_KSNITCH_REPEAT_MEASUREMENT,
