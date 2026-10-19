@@ -52,7 +52,8 @@ PRELOAD_SRCS := \
   src/fops.c \
   src/pipe.c \
   src/root.c \
-  src/preload.c
+  src/preload.c \
+  src/entrypoint.c
 
 APP_PRELOAD_SRCS := \
   src/main.c \
@@ -94,8 +95,8 @@ $(OUTDIR):
 	mkdir -p $@
 
 $(PRELOAD): $(PRELOAD_SRCS) $(TARGET_HEADER) src/offset.h src/common.h src/kernelsnitch/*.h | $(OUTDIR)
-	$(TARGET_CC) -fPIC $(COMMON_CFLAGS) $(PRELOAD_SRCS) \
-	  -shared -pthread -o $@
+	$(TARGET_CC) -fPIE -pie $(COMMON_CFLAGS) $(PRELOAD_SRCS) \
+	  -pthread -o $@
 
 $(ROOT_HELPER): src/su_daemon.c | $(OUTDIR)
 	$(TARGET_CC) -fPIE -pie -O2 -g0 -Wall -Wextra $< -ldl -o $@
